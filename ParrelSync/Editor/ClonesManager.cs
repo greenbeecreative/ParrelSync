@@ -29,22 +29,15 @@ namespace ParrelSync
         /// </remarks>
         public const string CloneNameSuffix = "_clone";
 
-        public const string ProjectName = "ParrelSync";
-
         /// <summary>
         /// The maximum number of clones
         /// </summary>
         public const int MaxCloneProjectCount = 10;
 
         /// <summary>
-        /// Name of the file for storing clone's argument.
+        /// Name of the file for storing clone's context.
         /// </summary>
-        public const string ArgumentFileName = ".parrelsyncarg";
-
-        /// <summary>
-        /// Default argument of the new clone
-        /// </summary>
-        public const string DefaultArgument = "client";
+        public const string ContextFileName = ".clonecontext";
 
         #region Managing clones
 
@@ -69,16 +62,16 @@ namespace ParrelSync
         /// </summary>
         /// <param name="sourceProjectPath"></param>
         /// <returns></returns>
-        public static Project CreateCloneFromPath(string sourceProjectPath)
+        private static Project CreateCloneFromPath(string sourceProjectPath)
         {
             Project sourceProject = new Project(sourceProjectPath);
 
+            string originalProjectPath = Path.Combine(ClonesManager.GetClonesDirectory(), ClonesManager.GetCurrentProject().name);
             string cloneProjectPath = null;
 
             //Find available clone suffix id
             for (int i = 0; i < MaxCloneProjectCount; i++)
             {
-                string originalProjectPath = ClonesManager.GetCurrentProject().projectPath;
                 string possibleCloneProjectPath = originalProjectPath + ClonesManager.CloneNameSuffix + "_" + i;
 
                 if (!Directory.Exists(possibleCloneProjectPath))
@@ -101,21 +94,29 @@ namespace ParrelSync
             ClonesManager.CreateProjectFolder(cloneProject);
 
             //Copy Folders           
-            Debug.Log("Library copy: " + cloneProject.libraryPath);
             ClonesManager.CopyDirectoryWithProgressBar(sourceProject.libraryPath, cloneProject.libraryPath,
                 "Cloning Project Library '" + sourceProject.name + "'. ");
-            Debug.Log("Packages copy: " + cloneProject.libraryPath);
-            ClonesManager.CopyDirectoryWithProgressBar(sourceProject.packagesPath, cloneProject.packagesPath,
-              "Cloning Project Packages '" + sourceProject.name + "'. ");
+
+            if (!Preferences.LinkProjectSettingsPref.Value)
+            {
+                ClonesManager.CopyDirectoryWithProgressBar(sourceProject.projectSettingsPath, cloneProject.projectSettingsPath,
+                "Cloning Project Settings '" + sourceProject.name + "'. ");
+            }
 
 
             //Link Folders
             ClonesManager.LinkFolders(sourceProject.assetPath, cloneProject.assetPath);
-            ClonesManager.LinkFolders(sourceProject.projectSettingsPath, cloneProject.projectSettingsPath);
             ClonesManager.LinkFolders(sourceProject.autoBuildPath, cloneProject.autoBuildPath);
             ClonesManager.LinkFolders(sourceProject.localPackages, cloneProject.localPackages);
+            ClonesManager.LinkFolders(sourceProject.packagesPath, cloneProject.packagesPath);
+
+            if (Preferences.LinkProjectSettingsPref.Value) {
+                ClonesManager.LinkFolders(sourceProject.projectSettingsPath, cloneProject.projectSettingsPath);
+            }
 
             ClonesManager.RegisterClone(cloneProject);
+
+            Debug.Log("Cloning finished");
 
             return cloneProject;
         }
@@ -130,9 +131,9 @@ namespace ParrelSync
             string identifierFile = Path.Combine(cloneProject.projectPath, ClonesManager.CloneFileName);
             File.Create(identifierFile).Dispose();
 
-            //Add argument file with default argument
-            string argumentFilePath = Path.Combine(cloneProject.projectPath, ClonesManager.ArgumentFileName);
-            File.WriteAllText(argumentFilePath, DefaultArgument, System.Text.Encoding.UTF8);
+            //Add context file with empty context
+            string contextFilePath = Path.Combine(cloneProject.projectPath, ClonesManager.ContextFileName);
+            File.WriteAllText(contextFilePath, "", System.Text.Encoding.UTF8);
 
             /// Add collabignore.txt to stop the clone from messing with Unity Collaborate if it's enabled. Just in case.
             string collabignoreFile = Path.Combine(cloneProject.projectPath, "collabignore.txt");
@@ -230,10 +231,10 @@ namespace ParrelSync
                 case (RuntimePlatform.WindowsEditor):
                     Debug.Log("Attempting to delete folder \"" + cloneProjectPath + "\"");
 
-                    //The argument file will be deleted first at the beginning of the project deletion process 
+                    //The context file will be deleted first at the beginning of the project deletion process 
                     //to prevent any further reading and writing to it(There's a File.Exist() check at the (file)editor windows.)
                     //If there's any file in the directory being write/read during the deletion process, the directory can't be fully removed.
-                    identifierFile = Path.Combine(cloneProjectPath, ClonesManager.ArgumentFileName);
+                    identifierFile = Path.Combine(cloneProjectPath, ClonesManager.ContextFileName);
                     File.Delete(identifierFile);
 
                     args = "/c " + @"rmdir /s/q " + string.Format("\"{0}\"", cloneProjectPath);
@@ -243,10 +244,10 @@ namespace ParrelSync
                 case (RuntimePlatform.OSXEditor):
                     Debug.Log("Attempting to delete folder \"" + cloneProjectPath + "\"");
 
-                    //The argument file will be deleted first at the beginning of the project deletion process 
+                    //The context file will be deleted first at the beginning of the project deletion process 
                     //to prevent any further reading and writing to it(There's a File.Exist() check at the (file)editor windows.)
                     //If there's any file in the directory being write/read during the deletion process, the directory can't be fully removed.
-                    identifierFile = Path.Combine(cloneProjectPath, ClonesManager.ArgumentFileName);
+                    identifierFile = Path.Combine(cloneProjectPath, ClonesManager.ContextFileName);
                     File.Delete(identifierFile);
 
                     FileUtil.DeleteFileOrDirectory(cloneProjectPath);
@@ -254,7 +255,7 @@ namespace ParrelSync
                     break;
                 case (RuntimePlatform.LinuxEditor):
                     Debug.Log("Attempting to delete folder \"" + cloneProjectPath + "\"");
-                    identifierFile = Path.Combine(cloneProjectPath, ClonesManager.ArgumentFileName);
+                    identifierFile = Path.Combine(cloneProjectPath, ClonesManager.ContextFileName);
                     File.Delete(identifierFile);
 
                     FileUtil.DeleteFileOrDirectory(cloneProjectPath);
@@ -277,27 +278,8 @@ namespace ParrelSync
         public static void CreateProjectFolder(Project project)
         {
             string path = project.projectPath;
-            Debug.Log("Creating new empty folder at: " + path);
+            Debug.Log("Creating new project clone at: " + path);
             Directory.CreateDirectory(path);
-        }
-
-        /// <summary>
-        /// Copies the full contents of the unity library. We want to do this to avoid the lengthy re-serialization of the whole project when it opens up the clone.
-        /// </summary>
-        /// <param name="sourceProject"></param>
-        /// <param name="destinationProject"></param>
-        [System.Obsolete]
-        public static void CopyLibraryFolder(Project sourceProject, Project destinationProject)
-        {
-            if (Directory.Exists(destinationProject.libraryPath))
-            {
-                Debug.LogWarning("Library copy: destination path already exists! ");
-                return;
-            }
-
-            Debug.Log("Library copy: " + destinationProject.libraryPath);
-            ClonesManager.CopyDirectoryWithProgressBar(sourceProject.libraryPath, destinationProject.libraryPath,
-                "Cloning project '" + sourceProject.name + "'. ");
         }
 
         #endregion
@@ -315,8 +297,6 @@ namespace ParrelSync
             destinationPath = destinationPath.Replace(" ", "\\ ");
             var command = string.Format("ln -s {0} {1}", sourcePath, destinationPath);
 
-            Debug.Log("Mac hard link " + command);
-
             ClonesManager.ExecuteBashCommand(command);
         }
 
@@ -331,8 +311,6 @@ namespace ParrelSync
             destinationPath = destinationPath.Replace(" ", "\\ ");
             var command = string.Format("ln -s {0} {1}", sourcePath, destinationPath);           
 
-            Debug.Log("Linux Symlink " + command);
-
             ClonesManager.ExecuteBashCommand(command);
         }
 
@@ -344,7 +322,6 @@ namespace ParrelSync
         private static void CreateLinkWin(string sourcePath, string destinationPath)
         {
             string cmd = "/C mklink /J " + string.Format("\"{0}\" \"{1}\"", destinationPath, sourcePath);
-            Debug.Log("Windows junction: " + cmd);
             ClonesManager.StartHiddenConsoleProcess("cmd.exe", cmd);
         }
 
@@ -363,7 +340,7 @@ namespace ParrelSync
         /// <param name="destinationPath"></param>
         public static void LinkFolders(string sourcePath, string destinationPath)
         {
-            if ((Directory.Exists(destinationPath) == false) && (Directory.Exists(sourcePath) == true))
+            if (Directory.Exists(sourcePath) && !Directory.Exists(destinationPath))
             {
                 switch (Application.platform)
                 {
@@ -381,7 +358,7 @@ namespace ParrelSync
                         break;
                 }
             }
-            else
+            else if (Directory.Exists(destinationPath))
             {
                 Debug.LogWarning("Skipping Asset link, it already exists: " + destinationPath);
             }
@@ -410,6 +387,21 @@ namespace ParrelSync
         }
 
         /// <summary>
+        /// Get the path to the directory where clones are created
+        /// </summary>
+        /// <returns></returns>
+        public static string GetClonesDirectory() {
+            var dir = Preferences.ClonesDirPref.Value;
+
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                dir = Directory.GetParent(GetCurrentProjectPath()).FullName;
+            }
+
+            return dir;
+        }
+
+        /// <summary>
         /// Get the path to the current unityEditor project folder's info
         /// </summary>
         /// <returns></returns>
@@ -429,23 +421,23 @@ namespace ParrelSync
         }
 
         /// <summary>
-        /// Get the argument of this clone project.
+        /// Get the context of this clone project.
         /// If this is the original project, will return an empty string.
         /// </summary>
         /// <returns></returns>
-        public static string GetArgument()
+        public static string GetContext()
         {
-            string argument = "";
+            string context = "";
             if (IsClone())
             {
-                string argumentFilePath = Path.Combine(GetCurrentProjectPath(), ClonesManager.ArgumentFileName);
-                if (File.Exists(argumentFilePath))
+                string contextFilePath = Path.Combine(GetCurrentProjectPath(), ClonesManager.ContextFileName);
+                if (File.Exists(contextFilePath))
                 {
-                    argument = File.ReadAllText(argumentFilePath, System.Text.Encoding.UTF8);
+                    context = File.ReadAllText(contextFilePath, System.Text.Encoding.UTF8);
                 }
             }
 
-            return argument;
+            return context;
         }
 
         /// <summary>
@@ -479,15 +471,16 @@ namespace ParrelSync
         }
 
         /// <summary>
-        /// Returns all clone projects path.
+        /// Returns all clone projects paths.
         /// </summary>
         /// <returns></returns>
-        public static List<string> GetCloneProjectsPath()
+        public static List<string> GetClonePaths()
         {
+            string originalProjectPath = Path.Combine(ClonesManager.GetClonesDirectory(), ClonesManager.GetCurrentProject().name);
+
             List<string> projectsPath = new List<string>();
             for (int i = 0; i < MaxCloneProjectCount; i++)
             {
-                string originalProjectPath = ClonesManager.GetCurrentProject().projectPath;
                 string cloneProjectPath = originalProjectPath + ClonesManager.CloneNameSuffix + "_" + i;
 
                 if (Directory.Exists(cloneProjectPath))
@@ -619,7 +612,7 @@ namespace ParrelSync
         /// <param name="args"></param>
         private static void StartHiddenConsoleProcess(string fileName, string args)
         {
-            System.Diagnostics.Process.Start(fileName, args);
+            Process.Start(fileName, args);
         }
 
         /// <summary>
@@ -650,14 +643,14 @@ namespace ParrelSync
 
                 if (!proc.StandardError.EndOfStream)
                 {
-                    UnityEngine.Debug.LogError(proc.StandardError.ReadToEnd());
+                    Debug.LogError(proc.StandardError.ReadToEnd());
                 }
             }
         }
 
         public static void OpenProjectInFileExplorer(string path)
         {
-            System.Diagnostics.Process.Start(@path);
+            Process.Start(@path);
         }
         #endregion
     }

@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using UnityEditor;
+using System;
 using System.IO;
 
 namespace ParrelSync
@@ -14,10 +15,10 @@ namespace ParrelSync
         /// </summary>
         public bool isCloneCreated
         {
-            get { return ClonesManager.GetCloneProjectsPath().Count >= 1; }
+            get { return ClonesManager.GetClonePaths().Count >= 1; }
         }
 
-        [MenuItem("ParrelSync/Clones Manager", priority = 0)]
+        [MenuItem("Build/Cloning/Clone Manager", priority = 0)]
         private static void InitWindow()
         {
             ClonesManagerWindow window = (ClonesManagerWindow)EditorWindow.GetWindow(typeof(ClonesManagerWindow));
@@ -52,33 +53,27 @@ namespace ParrelSync
                         MessageType.Info);
                 }
 
-                //Clone project custom argument.
-                GUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField("Arguments", GUILayout.Width(70));
-                if (GUILayout.Button("?", GUILayout.Width(20)))
-                {
-                    Application.OpenURL(ExternalLinks.CustomArgumentHelpLink);
-                }
-                GUILayout.EndHorizontal();
+                //Clone project custom context.
+                EditorGUILayout.LabelField("Context");
 
-                string argumentFilePath = Path.Combine(ClonesManager.GetCurrentProjectPath(), ClonesManager.ArgumentFileName);
+                string contextFilePath = Path.Combine(ClonesManager.GetCurrentProjectPath(), ClonesManager.ContextFileName);
                 //Need to be careful with file reading / writing since it will effect the deletion of
                 //  the clone project(The directory won't be fully deleted if there's still file inside being read or write).
-                //The argument file will be deleted first at the beginning of the project deletion process
+                //The context file will be deleted first at the beginning of the project deletion process
                 //to prevent any further being read and write.
                 //Will need to take some extra cautious if want to change the design of how file editing is handled.
-                if (File.Exists(argumentFilePath))
+                if (File.Exists(contextFilePath))
                 {
-                    string argument = File.ReadAllText(argumentFilePath, System.Text.Encoding.UTF8);
-                    string argumentTextAreaInput = EditorGUILayout.TextArea(argument,
+                    string context = File.ReadAllText(contextFilePath, System.Text.Encoding.UTF8);
+                    string contextTextAreaInput = EditorGUILayout.TextArea(context,
                         GUILayout.Height(50),
                         GUILayout.MaxWidth(300)
                     );
-                    File.WriteAllText(argumentFilePath, argumentTextAreaInput, System.Text.Encoding.UTF8);
+                    File.WriteAllText(contextFilePath, contextTextAreaInput, System.Text.Encoding.UTF8);
                 }
                 else
                 {
-                    EditorGUILayout.LabelField("No argument file found.");
+                    EditorGUILayout.LabelField("No context file found.");
                 }
             }
             else// If it is an original project...
@@ -91,7 +86,7 @@ namespace ParrelSync
                     //List all clones
                     clonesScrollPos =
                          EditorGUILayout.BeginScrollView(clonesScrollPos);
-                    var cloneProjectsPath = ClonesManager.GetCloneProjectsPath();
+                    var cloneProjectsPath = ClonesManager.GetClonePaths();
                     for (int i = 0; i < cloneProjectsPath.Count; i++)
                     {
 
@@ -107,39 +102,33 @@ namespace ParrelSync
 
 
                         GUILayout.BeginHorizontal();
-                        EditorGUILayout.TextField("Clone project path", cloneProjectPath, EditorStyles.textField);
+                        EditorGUILayout.LabelField(cloneProjectPath);
                         if (GUILayout.Button("View Folder", GUILayout.Width(80)))
                         {
                             ClonesManager.OpenProjectInFileExplorer(cloneProjectPath);
                         }
                         GUILayout.EndHorizontal();
 
-                        GUILayout.BeginHorizontal();
-                        EditorGUILayout.LabelField("Arguments", GUILayout.Width(70));
-                        if (GUILayout.Button("?", GUILayout.Width(20)))
-                        {
-                            Application.OpenURL(ExternalLinks.CustomArgumentHelpLink);
-                        }
-                        GUILayout.EndHorizontal();
+                        EditorGUILayout.LabelField("Context");
 
-                        string argumentFilePath = Path.Combine(cloneProjectPath, ClonesManager.ArgumentFileName);
+                        string contextFilePath = Path.Combine(cloneProjectPath, ClonesManager.ContextFileName);
                         //Need to be careful with file reading/writing since it will effect the deletion of
                         //the clone project(The directory won't be fully deleted if there's still file inside being read or write).
-                        //The argument file will be deleted first at the beginning of the project deletion process 
+                        //The context file will be deleted first at the beginning of the project deletion process 
                         //to prevent any further being read and write.
                         //Will need to take some extra cautious if want to change the design of how file editing is handled.
-                        if (File.Exists(argumentFilePath))
+                        if (File.Exists(contextFilePath))
                         {
-                            string argument = File.ReadAllText(argumentFilePath, System.Text.Encoding.UTF8);
-                            string argumentTextAreaInput = EditorGUILayout.TextArea(argument,
+                            string context = File.ReadAllText(contextFilePath, System.Text.Encoding.UTF8);
+                            string contextTextAreaInput = EditorGUILayout.TextArea(context,
                                 GUILayout.Height(50),
                                 GUILayout.MaxWidth(300)
                             );
-                            File.WriteAllText(argumentFilePath, argumentTextAreaInput, System.Text.Encoding.UTF8);
+                            File.WriteAllText(contextFilePath, contextTextAreaInput, System.Text.Encoding.UTF8);
                         }
                         else
                         {
-                            EditorGUILayout.LabelField("No argument file found.");
+                            EditorGUILayout.LabelField("No context file found.");
                         }
 
                         EditorGUILayout.Space();
@@ -159,7 +148,7 @@ namespace ParrelSync
                         {
                             bool delete = EditorUtility.DisplayDialog(
                                 "Delete the clone?",
-                                "Are you sure you want to delete the clone project '" + ClonesManager.GetCurrentProject().name + "_clone'?",
+                                "Are you sure you want to delete the clone project '" + Path.GetFileName(cloneProjectPath) + "'?",
                                 "Delete",
                                 "Cancel");
                             if (delete)
